@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>实时监控日志 - 天锐绿盾文件解密工具</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>实时监控日志</h1>
+    <p class="sub">自动刷新源目录的解密活动。每 1.5 秒刷新一次。</p>
+    <div class="row">
+      <button id="clearBtn" type="button" class="ghost">清空日志</button>
+      <a class="link" href="/" >← 返回主页</a>
+    </div>
+    <div id="logs" class="logs"></div>
+  </div>
+
+  <script>
+    const logBox = document.getElementById('logs');
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    }
+
+    async function refresh() {
+      try {
+        const r = await fetch('/api/logs');
+        const d = await r.json();
+        const logs = d.logs || [];
+        logBox.innerHTML = logs.map(l => '<div class="line">' + escapeHtml(l) + '</div>').join('');
+        logBox.scrollTop = logBox.scrollHeight;
+      } catch (e) { /* ignore */ }
+    }
+
+    document.getElementById('clearBtn').addEventListener('click', async () => {
+      await fetch('/api/clear-logs', { method: 'POST' });
+      refresh();
+    });
+
+    refresh();
+    setInterval(refresh, 1500);
+  </script>
+</body>
+</html>
