@@ -1,0 +1,34 @@
+{
+  "name": "ld-decrypt-tool",
+  "version": "1.0.0",
+  "description": "交互式工具",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "receiver": "node export-receiver.js",
+    "dev": "nodemon index.js",
+    "build:win": "pkg . --targets node16-win-x64 --output ./dist/unlock-win.exe",
+    "build:all": "pkg . --targets node16-win-x64,node16-linux-x64,node16-macos-x64 --out-path ./dist/"
+  },
+  "bin": {
+    "unlock": "./bin/unlock.js"
+  },
+  "keywords": [
+    "decrypt",
+    "ldDecrypt",
+    "green-shield",
+    "file-decrypt"
+  ],
+  "author": "Developer",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "chokidar": "^3.5.3",
+    "multer": "^1.4.5-lts.1",
+    "ejs": "^3.1.8"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.20",
+    "pkg": "^5.8.1"
+  }
+}
