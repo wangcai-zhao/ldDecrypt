@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>天锐绿盾文件解密工具</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>天锐绿盾文件解密工具</h1>
+    <p class="sub">利用本机绿盾客户端权限，将透明加密文件读出为明文。需在本机已安装绿盾且具备解密权限的 Windows 上运行。</p>
+
+    <section class="card">
+      <h2>① 单文件解密（上传）</h2>
+      <p class="hint">选择被绿盾加密的文件，服务端读取并透明解密后回传明文文件。</p>
+      <label class="mode" style="display:block;margin:8px 0;">导出方式：
+        <select id="singleMode">
+          <option value="local">本地下载</option>
+          <option value="network">网络导出</option>
+        </select>
+      </label>
+      <form id="uploadForm">
+        <input type="file" id="fileInput" name="file" required>
+        <button type="submit">上传并解密</button>
+      </form>
+      <div id="uploadMsg" class="msg"></div>
+    </section>
+
+    <section class="card">
+      <h2>③ 批量解密（多文件上传）</h2>
+      <p class="hint">一次选择多个加密文件，服务端逐个解密后打包为 ZIP 下载。</p>
+      <label class="mode" style="display:block;margin:8px 0;">导出方式：
+        <select id="batchMode">
+          <option value="local">本地下载(ZIP)</option>
+          <option value="network">网络导出</option>
+        </select>
+      </label>
+      <input type="file" id="batchInput" multiple>
+      <button id="batchBtn" type="button">批量解密并下载 ZIP</button>
+      <div id="batchMsg" class="msg"></div>
+    </section>
+
+    <section class="card">
+      <h2>② 目录监控配置</h2>
+      <p class="hint">配置后，源目录中新加入的文件会被自动解密到目标目录。保存即重启监控，留空并保存则停止全部监控。配置会写入 config.json，重启不丢失。</p>
+      <label>监控源目录：<input type="text" id="sourceDir" value="<%= sourceDir %>" placeholder="例如 D:/fileWatch"></label>
+      <label>解密输出目录：<input type="text" id="targetDir" value="<%= targetDir %>" placeholder="例如 D:/ldDecrypt/decrypted"></label>
+      <div class="row">
+        <button id="saveWatch" type="button">保存并启动监控</button>
+        <button id="scanNow" type="button">立即扫描现有文件</button>
+        <button id="stopWatch" type="button" class="ghost">停止所有监控</button>
+        <a class="link" href="/monitor" target="_blank">打开实时监控日志 →</a>
+      </div>
+      <div id="watchStatus" class="status">
+        <span class="badge" id="watchBadge">检测中…</span>
+        <span id="watchStatText"></span>
+      </div>
+      <p class="hint safe">💡 输出目录建议用 <code>D:/ldDecrypt/decrypted</code>（已验证不被绿盾写时加密）。若改用其他目录后文件仍为密文，多半是该目录被绿盾管控，请改回此目录。</p>
+      <div id="watchMsg" class="msg"></div>
+    </section>
+
+    <section class="card">
+      <h2>④ 网络导出（绕过绿盾写时加密的终极方案）</h2>
+      <p class="hint">当本机所有目录都被绿盾监控、本地落盘必被重新加密时，可把明文通过 HTTP 直接推送到<b>另一台不受绿盾保护的机器</b>上落盘。绿盾只拦截本地磁盘写入，不拦截网络出口。</p>
+      <label><input type="checkbox" id="exportEnabled"> 启用网络导出</label>
+      <label>接收端地址：<input type="text" id="exportUrl" placeholder="http://接收端IP:4000" value=""></label>
+      <label>访问令牌（可选）：<input type="text" id="exportToken" placeholder="与接收端 TOKEN 一致"></label>
+      <p class="hint">接收端在另一台机器运行：<code>node export-receiver.js</code>（可用 <code>PORT</code> / <code>DIR</code> / <code>TOKEN</code> 环境变量配置保存目录与令牌）。</p>
+      <div class="row">
+        <button id="saveExport" type="button">保存并启用</button>
+        <button id="stopExport" type="button" class="ghost">关闭网络导出</button>
+      </div>
+      <div id="exportStatus" class="status">
+        <span class="badge" id="exportBadge">未启用</span>
+        <span id="exportStatText"></span>
+      </div>
+      <div id="exportMsg" class="msg"></div>
+    </section>
+  </div>
+
+  <script>
+    // ① 上传解密
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('fileInput');
+      const msg = document.getElementById('uploadMsg');
+      if (!fileInput.files.length) { msg.textContent = '请先选择文件'; return; }
+      msg.textContent = '解密中…';
+      const fd = new FormData();
+      fd.append('file', fileInput.files[0]);
+      fd.append('mode', document.getElementById('singleMode').value);
+      try {
+        const resp = await fetch('/api/decrypt', { method: 'POST', body: fd });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: resp.statusText }));
+          msg.textContent = '失败：' + (err.error || resp.status);
+          return;
+        }
+        const ct = resp.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const j = await resp.json();
+          if (j.mode === 'export') { msg.textContent = '✅ ' + (j.message || '已网络导出'); return; }
+          msg.textContent = '失败：' + (j.error || resp.status); return;
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileInput.files[0].name;
+        a.click();
+        URL.revokeObjectURL(url);
+        msg.textContent = '解密完成，已开始下载。';
+      } catch (err) {
+        msg.textContent = '请求出错：' + err.message;
+      }
+    });
+
+    // ③ 批量解密
+    document.getElementById('batchBtn').addEventListener('click', async () => {
+      const input = document.getElementById('batchInput');
+      const msg = document.getElementById('batchMsg');
+      if (!input.files.length) { msg.textContent = '请先选择文件'; return; }
+      msg.textContent = '解密中（0/' + input.files.length + '）…';
+      const fd = new FormData();
+      for (const f of input.files) fd.append('file', f);
+      fd.append('mode', document.getElementById('batchMode').value);
+      try {
+        const resp = await fetch('/api/decrypt/batch', { method: 'POST', body: fd });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: resp.statusText }));
+          msg.textContent = '失败：' + (err.error || resp.status);
+          return;
+        }
+        const ct = resp.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const j = await resp.json();
+          if (j.mode === 'export') { msg.textContent = '✅ ' + (j.message || '已网络导出'); return; }
+          msg.textContent = '失败：' + (j.error || resp.status); return;
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'decrypted_batch.zip';
+        a.click();
+        URL.revokeObjectURL(url);
+        msg.textContent = '解密完成，已下载 ' + input.files.length + ' 个文件的 ZIP。';
+      } catch (err) {
+        msg.textContent = '请求出错：' + err.message;
+      }
+    });
+
+    // ② 监控配置
+    const sourceInput = document.getElementById('sourceDir');
+    const targetInput = document.getElementById('targetDir');
+    const watchMsg = document.getElementById('watchMsg');
+
+    async function loadConfig() {
+      try {
+        const r = await fetch('/api/watch');
+        const d = await r.json();
+        if (d.watchers && d.watchers.length) {
+          sourceInput.value = d.watchers[0].sourceDir;
+          targetInput.value = d.watchers[0].targetDir;
+        }
+        if (d.export) {
+          document.getElementById('exportEnabled').checked = !!d.export.enabled;
+          document.getElementById('exportUrl').value = d.export.url || '';
+          const def = d.export.enabled ? 'network' : 'local';
+          document.getElementById('singleMode').value = def;
+          document.getElementById('batchMode').value = def;
+        }
+      } catch (e) { /* ignore */ }
+    }
+    loadConfig();
+
+    // 刷新监控状态面板（运行中/已处理文件数等）
+    async function refreshStatus() {
+      try {
+        const r = await fetch('/api/watch');
+        const d = await r.json();
+        const badge = document.getElementById('watchBadge');
+        const text = document.getElementById('watchStatText');
+        if (d.watchers && d.watchers.length) {
+          const w = d.watchers[0];
+          badge.textContent = '监控中';
+          badge.className = 'badge on';
+          const processed = (d.stats && d.stats.processed) || 0;
+          text.textContent = `源：${w.sourceDir}　→　输出：${w.targetDir}　|　累计已处理 ${processed} 个文件`;
+        } else {
+          badge.textContent = '未监控';
+          badge.className = 'badge off';
+          text.textContent = '当前没有正在运行的监控（保存目录后自动开始）';
+        }
+        const exBadge = document.getElementById('exportBadge');
+        const exText = document.getElementById('exportStatText');
+        if (d.export && d.export.enabled) {
+          exBadge.textContent = '导出中';
+          exBadge.className = 'badge on';
+          exText.textContent = '明文将推送到 ' + d.export.url;
+        } else {
+          exBadge.textContent = '未启用';
+          exBadge.className = 'badge off';
+          exText.textContent = '当前为本地落盘模式';
+        }
+      } catch (e) { /* ignore */ }
+    }
+    refreshStatus();
+    setInterval(refreshStatus, 3000); // 每 3 秒刷新一次状态
+
+    document.getElementById('saveWatch').addEventListener('click', async () => {
+      const sourceDir = sourceInput.value.trim();
+      const targetDir = targetInput.value.trim();
+      watchMsg.textContent = '提交中…';
+      const r = await fetch('/api/watch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceDir, targetDir })
+      });
+      const d = await r.json().catch(() => ({}));
+      watchMsg.textContent = d.message || d.error || '已提交';
+      refreshStatus();
+    });
+
+    // 立即扫描现有文件（手动触发一次全量解密，不依赖文件变化）
+    document.getElementById('scanNow').addEventListener('click', async () => {
+      const sourceDir = sourceInput.value.trim();
+      const targetDir = targetInput.value.trim();
+      watchMsg.textContent = '扫描中…';
+      const r = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceDir, targetDir })
+      });
+      const d = await r.json().catch(() => ({}));
+      watchMsg.textContent = d.message || d.error || '扫描完成';
+      refreshStatus();
+    });
+
+    document.getElementById('stopWatch').addEventListener('click', async () => {
+      const r = await fetch('/api/watch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceDir: '', targetDir: '' })
+      });
+      const d = await r.json().catch(() => ({}));
+      watchMsg.textContent = d.message || d.error || '已停止';
+      refreshStatus();
+    });
+
+    // ④ 网络导出配置
+    const exportMsg = document.getElementById('exportMsg');
+    document.getElementById('saveExport').addEventListener('click', async () => {
+      const enabled = document.getElementById('exportEnabled').checked;
+      const exportUrl = document.getElementById('exportUrl').value.trim();
+      const exportToken = document.getElementById('exportToken').value.trim();
+      exportMsg.textContent = '提交中…';
+      const r = await fetch('/api/export-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, exportUrl, exportToken })
+      });
+      const d = await r.json().catch(() => ({}));
+      exportMsg.textContent = d.message || d.error || '已提交';
+      refreshStatus();
+    });
+    document.getElementById('stopExport').addEventListener('click', async () => {
+      exportMsg.textContent = '提交中…';
+      const r = await fetch('/api/export-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: false, exportUrl: '' })
+      });
+      const d = await r.json().catch(() => ({}));
+      exportMsg.textContent = d.message || d.error || '已关闭';
+      refreshStatus();
+    });
+  </script>
+</body>
+</html>
