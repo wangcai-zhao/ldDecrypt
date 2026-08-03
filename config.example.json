@@ -1,0 +1,6 @@
+{
+  "sourceDir": "D:/fileWatch",
+  "targetDir": "D:/ldDecrypt/decrypted",
+  "exportUrl": "http://<接收端IP>:4000/upload",
+  "exportToken": "<你的接收端令牌>"
+}
