@@ -1,0 +1,17 @@
+# 依赖
+node_modules/
+
+# WorkBuddy 项目私有记忆
+.workbuddy/
+
+# 运行时输出 / 临时目录
+decrypted/
+uploads/
+received/
+.unenc_tmp/
+
+# 真实配置（含令牌与内网 IP，请勿提交）；请复制 config.example.json 后自行填写
+config.json
+
+# 杂项
+Visual Studio 2022/
